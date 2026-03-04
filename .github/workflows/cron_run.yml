@@ -1,0 +1,17 @@
+name: Exécution planifiée des tests API
+
+on:
+  schedule:
+    # Déclenchement automatique toutes les heures
+    - cron: '0 * * * *'
+  # Déclenchement manuel depuis l'interface GitHub
+  workflow_dispatch:
+
+jobs:
+  trigger-test-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lancer un run de tests via l'API
+        run: |
+          curl -s https://SofChel.pythonanywhere.com/run
+          echo "✅ Run de tests déclenché avec succès."

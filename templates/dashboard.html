@@ -159,6 +159,50 @@
 
     /* ── Timestamp ── */
     .ts { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+
+    /* ── Charts ── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 780px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+    .chart-container {
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    .chart-container h3 {
+      font-size: 14px; color: var(--muted);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    /* ── Export toolbar ── */
+    .export-bar {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn-export {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 18px;
+      font-size: 13px; font-weight: 600;
+      color: var(--text);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      text-decoration: none;
+    }
+    .btn-export:hover { background: rgba(255,255,255,0.12); border-color: var(--accent); }
+    .btn-export .ico { font-size: 15px; }
   </style>
 </head>
 <body>
@@ -167,11 +211,23 @@
   <!-- ── Header ── -->
   <header>
     <h1>📊 Monitoring <span>Yu-Gi-Oh! API</span></h1>
-    <button class="btn-run" id="btnRun" onclick="launchRun()">
-      <span class="icon">▶</span>
-      <span class="spinner"></span>
-      Lancer un nouveau test
-    </button>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <button class="btn-run" id="btnRun" onclick="launchRun()">
+        <span class="icon">▶</span>
+        <span class="spinner"></span>
+        Lancer un nouveau test
+      </button>
+      {% if latest is not none %}
+      <div class="export-bar">
+        <a class="btn-export" href="/export/json" title="Télécharger en JSON">
+          <span class="ico">📄</span> JSON
+        </a>
+        <a class="btn-export" href="/export/csv" title="Télécharger en CSV">
+          <span class="ico">📊</span> CSV
+        </a>
+      </div>
+      {% endif %}
+    </div>
   </header>
 
   {% if latest is none %}
@@ -253,6 +309,24 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════
+       GRAPHIQUES DE TENDANCE
+       ════════════════════════════════════════════════════════════════ -->
+  {% if history | length > 1 %}
+  <div class="section">
+    <div class="charts-grid">
+      <div class="chart-container">
+        <h3>📈 Latence (Moy. & P95)</h3>
+        <canvas id="chartLatency"></canvas>
+      </div>
+      <div class="chart-container">
+        <h3>📊 Tests réussis / échoués</h3>
+        <canvas id="chartPassFail"></canvas>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ════════════════════════════════════════════════════════════════
        HISTORIQUE DES RUNS
        ════════════════════════════════════════════════════════════════ -->
   {% if history | length > 1 %}
@@ -297,6 +371,9 @@
 
 </div>
 
+<!-- ── Chart.js CDN (léger, zero dépendance serveur) ── -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
 <!-- ── Script : appel AJAX vers /run puis rechargement ── -->
 <script>
   async function launchRun() {
@@ -312,6 +389,120 @@
       btn.classList.remove('loading');
     }
   }
+
+  /* ── Graphiques (uniquement si les canvas existent) ── */
+  document.addEventListener('DOMContentLoaded', () => {
+    const canvasLatency  = document.getElementById('chartLatency');
+    const canvasPassFail = document.getElementById('chartPassFail');
+    if (!canvasLatency || !canvasPassFail) return;
+
+    // Données injectées par Jinja (historique inversé : du plus ancien au plus récent)
+    const history = [
+      {% for r in history | reverse %}
+      {
+        label: "{{ r.timestamp }}",
+        avg: {{ r.latency_avg }},
+        p95: {{ r.latency_p95 }},
+        passed: {{ r.passed }},
+        failed: {{ r.failed }},
+      },
+      {% endfor %}
+    ];
+
+    const labels = history.map(h => {
+      // Affiche seulement l'heure si c'est le même jour, sinon la date courte
+      const parts = h.label.split('T');
+      return parts.length === 2 ? parts[1].substring(0, 5) : h.label.substring(5, 16);
+    });
+
+    const chartColors = {
+      avg:    'rgba(119,186,255,1)',
+      avgBg:  'rgba(119,186,255,0.15)',
+      p95:    'rgba(255,204,102,1)',
+      p95Bg:  'rgba(255,204,102,0.10)',
+      pass:   'rgba(98,214,160,0.85)',
+      fail:   'rgba(255,107,122,0.85)',
+    };
+
+    const gridColor = 'rgba(255,255,255,0.06)';
+    const tickColor = '#8892b0';
+
+    // ── Graphe 1 : Latence Moyenne & P95 ──
+    new Chart(canvasLatency, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Moyenne (ms)',
+            data: history.map(h => h.avg),
+            borderColor: chartColors.avg,
+            backgroundColor: chartColors.avgBg,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            borderWidth: 2,
+          },
+          {
+            label: 'P95 (ms)',
+            data: history.map(h => h.p95),
+            borderColor: chartColors.p95,
+            backgroundColor: chartColors.p95Bg,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            borderWidth: 2,
+            borderDash: [6, 3],
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: tickColor, font: { size: 12 } } },
+        },
+        scales: {
+          x: { ticks: { color: tickColor }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor }, beginAtZero: true },
+        },
+      },
+    });
+
+    // ── Graphe 2 : Barres empilées Passed / Failed ──
+    new Chart(canvasPassFail, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Réussis',
+            data: history.map(h => h.passed),
+            backgroundColor: chartColors.pass,
+            borderRadius: 4,
+          },
+          {
+            label: 'Échoués',
+            data: history.map(h => h.failed),
+            backgroundColor: chartColors.fail,
+            borderRadius: 4,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: tickColor, font: { size: 12 } } },
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: tickColor }, grid: { color: gridColor } },
+          y: { stacked: true, ticks: { color: tickColor, stepSize: 1 }, grid: { color: gridColor }, beginAtZero: true },
+        },
+      },
+    });
+  });
 </script>
 </body>
 </html>

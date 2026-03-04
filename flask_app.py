@@ -5,11 +5,16 @@ Routes :
     /           → redirige vers /dashboard
     /run        → déclenche un run de tests et retourne le JSON
     /dashboard  → tableau de bord visuel (dernier run + historique)
+    /export/json→ télécharge l'historique complet en JSON
+    /export/csv → télécharge l'historique complet en CSV
     /health     → health-check du service
     /consignes  → page de consignes de l'atelier (existante)
 """
 
-from flask import Flask, render_template, jsonify, redirect, url_for
+import csv
+import io
+import json
+from flask import Flask, render_template, jsonify, redirect, url_for, Response
 
 import storage
 from tester import runner
@@ -66,6 +71,57 @@ def dashboard():
     history = runs  # on passe tout l'historique (y compris le dernier)
 
     return render_template("dashboard.html", latest=latest, history=history)
+
+
+# ======================================================================
+# Route : /export/json  →  export de l'historique en JSON
+# ======================================================================
+@app.route("/export/json")
+def export_json():
+    """Retourne l'historique complet des runs en téléchargement JSON."""
+    runs = storage.get_latest_runs(limit=1000)
+    payload = json.dumps(runs, indent=2, ensure_ascii=False, default=str)
+    return Response(
+        payload,
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=monitoring_export.json"},
+    )
+
+
+# ======================================================================
+# Route : /export/csv  →  export de l'historique en CSV
+# ======================================================================
+@app.route("/export/csv")
+def export_csv():
+    """Retourne l'historique complet des runs en téléchargement CSV (compatible Excel FR)."""
+    runs = storage.get_latest_runs(limit=1000)
+
+    # Construction du CSV en mémoire avec séparateur ";" pour Excel français
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+
+    # En-tête
+    writer.writerow([
+        "id", "timestamp", "passed", "failed",
+        "error_rate", "latency_avg_ms", "latency_p95_ms",
+    ])
+
+    # Lignes de données
+    for r in runs:
+        writer.writerow([
+            r["id"], r["timestamp"], r["passed"], r["failed"],
+            r["error_rate"], r["latency_avg"], r["latency_p95"],
+        ])
+
+    csv_data = output.getvalue()
+    output.close()
+
+    # BOM UTF-8 (\ufeff) pour qu'Excel détecte l'encodage et les accents
+    return Response(
+        "\ufeff" + csv_data,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=monitoring_export.csv"},
+    )
 
 
 # ======================================================================

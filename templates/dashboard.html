@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoring API Yu-Gi-Oh! — Dashboard</title>
+  <style>
+    /* ── Variables & Reset ── */
+    :root {
+      --bg: #0b1020;
+      --card: #121a33;
+      --card-border: rgba(255,255,255,0.07);
+      --text: #e9edff;
+      --muted: #8892b0;
+      --accent: #77baff;
+      --ok: #62d6a0;
+      --warn: #ffcc66;
+      --bad: #ff6b7a;
+      --line: #1e2d50;
+      --radius: 14px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+      background: radial-gradient(ellipse 1400px 700px at 10% 0%, #172257, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ── */
+    .wrapper { max-width: 1120px; margin: 0 auto; padding: 28px 18px 60px; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 14px;
+      margin-bottom: 30px;
+    }
+    header h1 { font-size: clamp(20px, 3vw, 30px); }
+    header h1 span { color: var(--accent); }
+
+    /* ── Bouton principal ── */
+    .btn-run {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 28px;
+      font-size: 15px; font-weight: 600;
+      color: #fff;
+      background: linear-gradient(135deg, #3a7bd5, #6c5ce7);
+      border: none; border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(58,123,213,0.35);
+      transition: transform .15s, box-shadow .15s;
+      text-decoration: none;
+    }
+    .btn-run:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(58,123,213,0.5); }
+    .btn-run:active { transform: scale(0.97); }
+    .btn-run.loading { opacity: .6; pointer-events: none; }
+    .btn-run .icon { font-size: 18px; }
+
+    /* ── Cards ── */
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    .card h2 {
+      font-size: 17px; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card h2 .dot {
+      width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+    }
+
+    /* ── KPI Grid ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .kpi {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 18px 16px;
+      text-align: center;
+    }
+    .kpi .value {
+      font-size: 28px; font-weight: 700;
+      line-height: 1.1;
+    }
+    .kpi .label {
+      font-size: 12px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .6px;
+      margin-top: 6px;
+    }
+    .kpi.ok .value   { color: var(--ok); }
+    .kpi.warn .value  { color: var(--warn); }
+    .kpi.bad .value   { color: var(--bad); }
+    .kpi.info .value  { color: var(--accent); }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th {
+      text-align: left; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .5px; color: var(--muted);
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+      letter-spacing: .3px;
+    }
+    .badge.pass { background: rgba(98,214,160,0.15); color: var(--ok); }
+    .badge.fail { background: rgba(255,107,122,0.15); color: var(--bad); }
+
+    /* ── Section spacing ── */
+    .section { margin-bottom: 32px; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center; padding: 80px 20px;
+    }
+    .empty-state .icon { font-size: 56px; margin-bottom: 16px; }
+    .empty-state h2 { font-size: 22px; margin-bottom: 10px; }
+    .empty-state p { color: var(--muted); max-width: 420px; margin: 0 auto 28px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .wrapper { padding: 16px 10px 40px; }
+    }
+
+    /* ── Spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: none;
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    .btn-run.loading .spinner { display: inline-block; }
+    .btn-run.loading .icon { display: none; }
+
+    /* ── Timestamp ── */
+    .ts { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ── Header ── -->
+  <header>
+    <h1>📊 Monitoring <span>Yu-Gi-Oh! API</span></h1>
+    <button class="btn-run" id="btnRun" onclick="launchRun()">
+      <span class="icon">▶</span>
+      <span class="spinner"></span>
+      Lancer un nouveau test
+    </button>
+  </header>
+
+  {% if latest is none %}
+  <!-- ════════════════════════════════════════════════════════════════
+       ÉTAT VIDE — aucun run n'a encore été lancé
+       ════════════════════════════════════════════════════════════════ -->
+  <div class="card empty-state">
+    <div class="icon">🃏</div>
+    <h2>Aucun test exécuté</h2>
+    <p>Cliquez sur le bouton ci-dessus pour lancer votre premier run de tests sur l'API Yu-Gi-Oh!</p>
+  </div>
+
+  {% else %}
+  <!-- ════════════════════════════════════════════════════════════════
+       DERNIER RUN
+       ════════════════════════════════════════════════════════════════ -->
+  {% set run = latest.raw_tests_json %}
+  {% set s   = run.summary %}
+
+  <div class="section">
+    <div class="card">
+      <h2>
+        <!-- Point vert ou rouge selon le taux d'erreur -->
+        <span class="dot" style="background:{{ '#62d6a0' if s.failed == 0 else '#ff6b7a' }}"></span>
+        Dernier Run
+      </h2>
+      <div class="ts">🕒 {{ run.timestamp }}</div>
+
+      <!-- ── KPIs ── -->
+      <div class="kpi-grid">
+        <div class="kpi ok">
+          <div class="value">{{ s.passed }}</div>
+          <div class="label">Tests réussis</div>
+        </div>
+        <div class="kpi {{ 'bad' if s.failed > 0 else 'ok' }}">
+          <div class="value">{{ s.failed }}</div>
+          <div class="label">Tests échoués</div>
+        </div>
+        <div class="kpi {{ 'bad' if s.error_rate > 0.3 else ('warn' if s.error_rate > 0 else 'ok') }}">
+          <div class="value">{{ (s.error_rate * 100) | round(1) }}%</div>
+          <div class="label">Taux d'erreur</div>
+        </div>
+        <div class="kpi info">
+          <div class="value">{{ s.latency_ms_avg | round(0) | int }}</div>
+          <div class="label">Latence moy. (ms)</div>
+        </div>
+        <div class="kpi info">
+          <div class="value">{{ s.latency_ms_p95 | round(0) | int }}</div>
+          <div class="label">P95 (ms)</div>
+        </div>
+      </div>
+
+      <!-- ── Tableau détaillé des 6 tests ── -->
+      <table>
+        <thead>
+          <tr>
+            <th>Test</th>
+            <th>Statut</th>
+            <th>Latence (ms)</th>
+            <th>Détails</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in run.tests %}
+          <tr>
+            <td><strong>{{ t.name }}</strong></td>
+            <td>
+              <span class="badge {{ 'pass' if t.status == 'PASS' else 'fail' }}">
+                {{ t.status }}
+              </span>
+            </td>
+            <td>{{ t.latency_ms if t.latency_ms is not none else '—' }}</td>
+            <td style="color:var(--muted); font-size:13px;">{{ t.details }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════
+       HISTORIQUE DES RUNS
+       ════════════════════════════════════════════════════════════════ -->
+  {% if history | length > 1 %}
+  <div class="section">
+    <div class="card">
+      <h2>📜 Historique des runs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Date</th>
+            <th>Réussis</th>
+            <th>Échoués</th>
+            <th>Taux d'erreur</th>
+            <th>Latence moy.</th>
+            <th>P95</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in history %}
+          <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.timestamp }}</td>
+            <td style="color:var(--ok);">{{ r.passed }}</td>
+            <td style="color:{{ 'var(--bad)' if r.failed > 0 else 'var(--ok)' }};">{{ r.failed }}</td>
+            <td>
+              <span class="badge {{ 'fail' if r.error_rate > 0.3 else ('pass' if r.error_rate == 0 else 'pass') }}">
+                {{ (r.error_rate * 100) | round(1) }}%
+              </span>
+            </td>
+            <td>{{ r.latency_avg | round(1) }} ms</td>
+            <td>{{ r.latency_p95 | round(1) }} ms</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+</div>
+
+<!-- ── Script : appel AJAX vers /run puis rechargement ── -->
+<script>
+  async function launchRun() {
+    const btn = document.getElementById('btnRun');
+    btn.classList.add('loading');
+    try {
+      const resp = await fetch('/run');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      // Run terminé avec succès → recharger le dashboard
+      window.location.href = '/dashboard';
+    } catch (err) {
+      alert('Erreur lors du run : ' + err.message);
+      btn.classList.remove('loading');
+    }
+  }
+</script>
+</body>
+</html>
